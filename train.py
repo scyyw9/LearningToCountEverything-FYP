@@ -39,7 +39,7 @@ gt_dir = data_path + 'gt_density_map_adaptive_384_VarV2'
 if not exists(args.output_dir):
     os.mkdir(args.output_dir)
 
-# os.environ["CUDA_LAUNCH_BLOCKING"] = "1" out of GPU memory
+# os.environ["CUDA_LAUNCH_BLOCKING"] = "1" test out of GPU memory
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 
