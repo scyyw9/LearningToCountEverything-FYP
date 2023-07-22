@@ -220,9 +220,68 @@ def extract_features(feature_model, image, boxes, feat_map_keys=['map3', 'map4']
     return All_feat
 
 
+class dataAugmentation(object):
+    def __init__(self, prob=0.5):
+        self.prob = prob
+
+    def __call__(self, sample):
+        image, lines_boxes, density = sample['image'], sample['lines_boxes'], sample['gt_density']
+
+        W, H = image.size
+
+        prob_h = np.random.rand()
+        if prob_h > self.prob:
+            image = transforms.RandomHorizontalFlip(1)(image)
+
+            boxes = list()
+            for box in lines_boxes:
+                x1 = W - box[3]
+                y1 = box[0]
+                x2 = W - box[1]
+                y2 = box[2]
+                boxes.append([y1, x1, y2, x2])
+            lines_boxes = boxes
+
+            new_density = cv2.flip(density, 1)
+            orig_count = np.sum(density)
+            new_count = np.sum(new_density)
+
+            if new_count > 0:
+                new_density = new_density * (orig_count / new_count)
+            density = new_density
+
+        prob_v = np.random.rand()
+        if prob_v > self.prob:
+            image = transforms.RandomVerticalFlip(1)(image)
+
+            boxes = list()
+            for box in lines_boxes:
+                x1 = box[1]
+                y1 = H - box[2]
+                x2 = box[3]
+                y2 = H - box[0]
+                boxes.append([y1, x1, y2, x2])
+            lines_boxes = boxes
+
+            new_density = cv2.flip(density, 0)
+            orig_count = np.sum(density)
+            new_count = np.sum(new_density)
+
+            if new_count > 0:
+                new_density = new_density * (orig_count / new_count)
+            density = new_density
+
+        prob_c = np.random.rand()
+        if prob_c > self.prob:
+            image = transforms.ColorJitter(brightness=0.5, hue=0.25, contrast=0.5, saturation=0.5)(image)
+
+        sample = {'image': image, 'lines_boxes': lines_boxes, 'gt_density': density}
+        return sample
+
+
 class resizeImage(object):
     """
-    If either the width or height of an image exceed a specified value, resize the image so that:
+    Resize the image so that:
         1. The maximum of the new height and new width does not exceed a specified value
         2. The new height and new width are divisible by 8
         3. The aspect ratio is preserved
@@ -259,7 +318,7 @@ class resizeImage(object):
 
 class resizeImageWithGT(object):
     """
-    If either the width or height of an image exceed a specified value, resize the image so that:
+    Resize the image so that:
         1. The maximum of the new height and new width does not exceed a specified value
         2. The new height and new width are divisible by 8
         3. The aspect ratio is preserved
@@ -305,7 +364,8 @@ class resizeImageWithGT(object):
 Normalize = transforms.Compose([transforms.ToTensor(),
                                 transforms.Normalize(mean=IM_NORM_MEAN, std=IM_NORM_STD)])
 Transform = transforms.Compose([resizeImage(MAX_HW)])
-TransformTrain = transforms.Compose([resizeImageWithGT(MAX_HW)])
+TransformTrain = transforms.Compose([dataAugmentation(),
+                                     resizeImageWithGT(MAX_HW)])
 
 
 def denormalize(tensor, means=IM_NORM_MEAN, stds=IM_NORM_STD):
