@@ -1,7 +1,8 @@
-import torch, torchvision
-import torch.nn as nn
-import torch.nn.functional as F
 from collections import OrderedDict
+
+import torch
+import torch.nn as nn
+import torchvision
 
 
 class Resnet50FPN(nn.Module):
@@ -13,6 +14,7 @@ class Resnet50FPN(nn.Module):
         self.conv2 = children[4]
         self.conv3 = children[5]
         self.conv4 = children[6]
+
     def forward(self, im_data):
         feat = OrderedDict()
         feat_map = self.conv1(im_data)
@@ -25,40 +27,40 @@ class Resnet50FPN(nn.Module):
 
 
 class CountRegressor(nn.Module):
-    def __init__(self, input_channels,pool='mean'):
+    def __init__(self, input_channels, pool='mean'):
         super(CountRegressor, self).__init__()
         self.pool = pool
         self.regressor = nn.Sequential(
-            nn.Conv2d(input_channels, 196, 7, padding=3),
+            nn.Conv2d(input_channels, 196, (7, 7), padding=3),
             nn.ReLU(),
             nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(196, 128, 5, padding=2),
+            nn.Conv2d(196, 128, (5, 5), padding=2),
             nn.ReLU(),
             nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(128, 64, 3, padding=1),
+            nn.Conv2d(128, 64, (3, 3), padding=1),
             nn.ReLU(),
             nn.UpsamplingBilinear2d(scale_factor=2),
-            nn.Conv2d(64, 32, 1),
+            nn.Conv2d(64, 32, (1, 1)),
             nn.ReLU(),
-            nn.Conv2d(32, 1, 1),
+            nn.Conv2d(32, 1, (1, 1)),
             nn.ReLU(),
         )
 
     def forward(self, im):
-        num_sample =  im.shape[0]
+        num_sample = im.shape[0]
         if num_sample == 1:
             output = self.regressor(im.squeeze(0))
             if self.pool == 'mean':
-                output = torch.mean(output, dim=(0), keepdim=True)
+                output = torch.mean(output, dim=0, keepdim=True)
                 return output
             elif self.pool == 'max':
-                output, _ = torch.max(output, 0,keepdim=True)
+                output, _ = torch.max(output, 0, keepdim=True)
                 return output
         else:
-            for i in range(0,num_sample):
+            for i in range(0, num_sample):
                 output = self.regressor(im[i])
                 if self.pool == 'mean':
-                    output = torch.mean(output, dim=(0), keepdim=True)
+                    output = torch.mean(output, dim=0, keepdim=True)
                 elif self.pool == 'max':
                     output, _ = torch.max(output, 0, keepdim=True)
                 if i == 0:

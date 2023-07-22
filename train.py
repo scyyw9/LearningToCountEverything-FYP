@@ -1,13 +1,6 @@
-"""
-Training Code for Learning To Count Everything, CVPR 2021
-Authors: Viresh Ranjan,Udbhav, Thu Nguyen, Minh Hoai
-
-Last modified by: Minh Hoai Nguyen (minhhoai@cs.stonybrook.edu)
-Date: 2021/04/19
-"""
 import torch.nn as nn
 from model import Resnet50FPN, CountRegressor, weights_normal_init
-from utils import MAPS, Scales, Transform, TransformTrain, extract_features, visualize_output_and_save
+from utils import MAPS, Scales, Transform, TransformTrain, extract_features
 from PIL import Image
 import os
 import torch
@@ -22,9 +15,13 @@ import torch.nn.functional as F
 
 
 parser = argparse.ArgumentParser(description="Few Shot Counting Evaluation code")
-parser.add_argument("-dp", "--data_path", type=str, default='./data/DataSets/FSC147_384_V2/handledData/', help="Path to the FSC147 dataset")
+parser.add_argument("-dp", "--data_path", type=str, default='./data/DataSets/FSC147_384_V2/', help="Path to the "
+                                                                                                   "FSC147 dataset")
 parser.add_argument("-o", "--output_dir", type=str, default="./logsSave", help="/Path/to/output/logs/")
-parser.add_argument("-ts", "--test-split", type=str, default='val', choices=["train", "test", "val"], help="what data split to evaluate on on")
+parser.add_argument("-ts", "--test-split", type=str, default='val', choices=["train", "test", "val"], help="what data "
+                                                                                                           "split to "
+                                                                                                           "evaluate "
+                                                                                                           "on on")
 parser.add_argument("-ep", "--epochs", type=int, default=1500, help="number of training epochs")
 parser.add_argument("-g", "--gpu", type=int, default=0, help="GPU id")
 parser.add_argument("-lr", "--learning-rate", type=float, default=1e-5, help="learning rate")
@@ -39,7 +36,6 @@ gt_dir = data_path + 'gt_density_map_adaptive_384_VarV2'
 if not exists(args.output_dir):
     os.mkdir(args.output_dir)
 
-# os.environ["CUDA_LAUNCH_BLOCKING"] = "1" test out of GPU memory
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu)
 
@@ -61,16 +57,18 @@ with open(anno_file) as f:
 with open(data_split_file) as f:
     data_split = json.load(f)
 
+
 def train():
     print("Training on FSC147 train set data")
     im_ids = data_split['train']
     random.shuffle(im_ids)
-    train_mae = 0
-    train_rmse = 0
-    train_loss = 0
+    ep_train_mae = 0
+    ep_train_rmse = 0
+    ep_train_loss = 0
     pbar = tqdm(im_ids)
     cnt = 0
     for im_id in pbar:
+        print('Start training: {:s}'.format(im_id))
         cnt += 1
         anno = annotations[im_id]
         bboxes = anno['box_examples_coordinates']
@@ -87,18 +85,20 @@ def train():
         image = Image.open('{}/{}'.format(im_dir, im_id))
         image.load()
         density_path = gt_dir + '/' + im_id.split(".jpg")[0] + ".npy"
-        density = np.load(density_path).astype('float32')    
+        density = np.load(density_path).astype('float32')
         sample = {'image': image, 'lines_boxes': rects, 'gt_density': density}
         sample = TransformTrain(sample)
         image, boxes, gt_density = sample['image'].cuda(), sample['boxes'].cuda(), sample['gt_density'].cuda()
 
         with torch.no_grad():
+            # Freeze the backbone
             features = extract_features(resnet50_conv, image.unsqueeze(0), boxes.unsqueeze(0), MAPS, Scales)
+        # Transformer with multi-attention mechanism(maybe)
         features.requires_grad = True
         optimizer.zero_grad()
         output = regressor(features)
 
-        #if image size isn't divisible by 8, gt size is slightly different from output size
+        # if image size isn't divisible by 8, gt size is slightly different from output size
         if output.shape[2] != gt_density.shape[2] or output.shape[3] != gt_density.shape[3]:
             orig_count = gt_density.sum().detach().item()
             gt_density = F.interpolate(gt_density, size=(output.shape[2], output.shape[3]), mode='bilinear')
@@ -108,23 +108,25 @@ def train():
         loss = criterion(output, gt_density)
         loss.backward()
         optimizer.step()
-        train_loss += loss.item()
+        ep_train_loss += loss.item()
         pred_cnt = torch.sum(output).item()
         gt_cnt = torch.sum(gt_density).item()
         cnt_err = abs(pred_cnt - gt_cnt)
-        train_mae += cnt_err
-        train_rmse += cnt_err ** 2
-        pbar.set_description('actual-predicted: {:6.1f}, {:6.1f}, error: {:6.1f}. Current MAE: {:5.2f}, RMSE: {:5.2f} '
-                             'Best VAL MAE: {:5.2f}, RMSE: {:5.2f}'.format(gt_cnt, pred_cnt, abs(pred_cnt - gt_cnt),
-                                                                            train_mae/cnt, (train_rmse/cnt)**0.5,
-                                                                            best_mae, best_rmse))
+        ep_train_mae += cnt_err
+        ep_train_rmse += cnt_err ** 2
+        torch.cuda.empty_cache()
+        pbar.set_description('actual-predicted: {:6.1f}, {:6.1f}, error: {:6.1f}. Current MAE: {:5.2f}, '
+                             'RMSE: {:5.2f} Best VAL MAE: {:5.2f}, RMSE: {:5.2f}'.format(gt_cnt, pred_cnt,
+                                                                                         abs(pred_cnt - gt_cnt),
+                                                                                         ep_train_mae/cnt,
+                                                                                         (ep_train_rmse/cnt)**0.5,
+                                                                                         best_mae, best_rmse))
         print("")
-    train_loss = train_loss / len(im_ids)
-    train_mae = (train_mae / len(im_ids))
-    train_rmse = (train_rmse / len(im_ids))**0.5
-    return train_loss, train_mae, train_rmse
 
-
+    ep_train_loss /= len(im_ids)
+    ep_train_mae /= len(im_ids)
+    ep_train_rmse = (ep_train_rmse / len(im_ids))**0.5
+    return ep_train_loss, ep_train_mae, ep_train_rmse
 
 
 def eval():
@@ -150,7 +152,7 @@ def eval():
 
         image = Image.open('{}/{}'.format(im_dir, im_id))
         image.load()
-        sample = {'image':image,'lines_boxes':rects}
+        sample = {'image': image, 'lines_boxes': rects}
         sample = Transform(sample)
         image, boxes = sample['image'].cuda(), sample['boxes'].cuda()
 
@@ -188,14 +190,9 @@ for epoch in range(0, args.epochs):
     if best_mae >= val_mae:
         best_mae = val_mae
         best_rmse = val_rmse
-        model_name = args.output_dir + '/' + "FamNet.pth"
+        model_name = args.output_dir + '/' + "FamNet_1.pth"
         torch.save(regressor.state_dict(), model_name)
 
     print("Epoch {}, Avg. Epoch Loss: {} Train MAE: {} Train RMSE: {} Val MAE: {} Val RMSE: {} Best Val MAE: {} Best "
           "Val RMSE: {} ".format(
               epoch+1,  stats[-1][0], stats[-1][1], stats[-1][2], stats[-1][3], stats[-1][4], best_mae, best_rmse))
-    
-
-
-
-
