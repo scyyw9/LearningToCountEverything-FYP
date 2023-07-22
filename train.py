@@ -91,7 +91,9 @@ def train():
         image, boxes, gt_density = sample['image'].cuda(), sample['boxes'].cuda(), sample['gt_density'].cuda()
 
         with torch.no_grad():
+            # Freeze the backbone
             features = extract_features(resnet50_conv, image.unsqueeze(0), boxes.unsqueeze(0), MAPS, Scales)
+        # Transformer with multi-attention mechanism(maybe)
         features.requires_grad = True
         optimizer.zero_grad()
         output = regressor(features)
@@ -188,7 +190,7 @@ for epoch in range(0, args.epochs):
     if best_mae >= val_mae:
         best_mae = val_mae
         best_rmse = val_rmse
-        model_name = args.output_dir + '/' + "FamNet.pth"
+        model_name = args.output_dir + '/' + "FamNet_1.pth"
         torch.save(regressor.state_dict(), model_name)
 
     print("Epoch {}, Avg. Epoch Loss: {} Train MAE: {} Train RMSE: {} Val MAE: {} Val RMSE: {} Best Val MAE: {} Best "
